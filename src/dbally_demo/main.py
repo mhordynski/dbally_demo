@@ -1,4 +1,5 @@
 import asyncio
+import datetime
 from typing import Annotated
 
 import dbally
@@ -40,6 +41,13 @@ class ClientsView(SqlAlchemyBaseView):
     @decorators.view_filter()
     def filter_by_city(self, city: Annotated[str, CityIndex]):
         return Clients.city == city
+
+    @decorators.view_filter()
+    def eligible_for_loyalty_program(self):
+        total_orders_check = Clients.total_orders > 3
+        date_joined_check = Clients.date_joined < (datetime.datetime.now() - datetime.timedelta(days=365))
+
+        return total_orders_check & date_joined_check
 
 
 async def main():
