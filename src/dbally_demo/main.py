@@ -1,11 +1,14 @@
 import asyncio
+from typing import Annotated
 
 import dbally
 import sqlalchemy
 from dbally import SqlAlchemyBaseView
 from dbally.audit import CLIEventHandler
+from dbally.embeddings import LiteLLMEmbeddingClient
 from dbally.gradio import create_gradio_interface
 from dbally.llms import LiteLLM
+from dbally.similarity import SimilarityIndex, SimpleSqlAlchemyFetcher, FaissStore
 from dbally.views import decorators
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
@@ -19,13 +22,23 @@ Base.prepare(autoload_with=engine)
 Clients = Base.classes.clients
 
 
+CityIndex = SimilarityIndex(
+    fetcher=SimpleSqlAlchemyFetcher(sqlalchemy_engine=engine, table=Clients, column=Clients.city),
+    store=FaissStore(
+        index_dir="./similarity_indexes",
+        index_name="country_similarity",
+        embedding_client=LiteLLMEmbeddingClient(model="text-embedding-3-small"),
+    )
+)
+
+
 class ClientsView(SqlAlchemyBaseView):
 
     def get_select(self) -> sqlalchemy.Select:
         return sqlalchemy.select(Clients)
 
     @decorators.view_filter()
-    def filter_by_city(self, city: str):
+    def filter_by_city(self, city: Annotated[str, CityIndex]):
         return Clients.city == city
 
 
@@ -33,6 +46,8 @@ async def main():
     collection = dbally.create_collection("clients", llm=LiteLLM(model_name="gpt-4o"),
                                           event_handlers=[CLIEventHandler()])
     collection.add(ClientsView, lambda: ClientsView(engine))
+
+    await collection.update_similarity_indexes()
 
     interface = await create_gradio_interface(collection)
     interface.launch()
